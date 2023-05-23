@@ -1,15 +1,16 @@
-import fs, { createReadStream, createWriteStream } from "fs";
+import { createReadStream, createWriteStream } from "fs";
 import { rm } from "fs/promises";
 import { pipeline } from "stream/promises";
 import readline from "readline";
 
-const BUFFER_CAPACITY = 100_000_000;
-const MAX_MEM_USE = 100_000_000;
-const NUM_OF_LINES = 100_000_000;
+const BUFFER_CAPACITY = 100_000_0;
+const MAX_MEM_USE = 100_000_0;
+const FILE_SIZE = 200_000_00;
 
 (async function () {
-  const fileName = `${NUM_OF_LINES}-lines.txt`;
-  generateFile(fileName, 100000);
+  const fileName = "largeFile.txt";
+
+  await createLargeFile(fileName);
   await externSort(fileName);
 })();
 
@@ -72,7 +73,6 @@ async function merge(tmpFileNames: string[], fileName: string) {
       });
     })
   );
-  console.log("values: ", values);
 
   return pipeline(async function* () {
     while (activeReaders.length > 0) {
@@ -92,22 +92,33 @@ async function merge(tmpFileNames: string[], fileName: string) {
   }, file);
 }
 
-function generateRandomString(length: number): string {
-  let result = "";
-  const characters =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  const charactersLength = characters.length;
-  for (let i = 0; i < length; i++) {
-    result += characters.charAt(Math.floor(Math.random() * charactersLength));
-  }
-  return result;
+function createLargeFile(fileName: string) {
+  console.log("Creating large file ...");
+  return pipeline(
+    generateRandomString(),
+    createWriteStream(fileName, { highWaterMark: BUFFER_CAPACITY })
+  );
 }
-function generateFile(filePath: string, numLines: number): void {
-  console.log("generating file");
 
-  let fileContent = "";
-  for (let i = 0; i < numLines; i++) {
-    fileContent += generateRandomString(12) + "\n";
+function* generateRandomString(): Generator {
+  let readBytes = 0;
+  let lastLog = 0;
+  while (readBytes < FILE_SIZE) {
+    const length = 12;
+    let result = "";
+    const characters =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    const charactersLength = characters.length;
+    for (let i = 0; i < length; i++) {
+      result += characters.charAt(Math.floor(Math.random() * charactersLength));
+    }
+    const x = result;
+    const data = `${x}\n`;
+    readBytes += data.length;
+    if (readBytes - lastLog > 1_000_000) {
+      console.log(`${readBytes / 1_000_000.0}mb`);
+      lastLog = readBytes;
+    }
+    yield data;
   }
-  fs.writeFileSync(filePath, fileContent);
 }
