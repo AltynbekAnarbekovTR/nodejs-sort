@@ -1,28 +1,28 @@
-import { createReadStream, createWriteStream } from "fs";
+import fs, { createReadStream, createWriteStream } from "fs";
 import { rm } from "fs/promises";
 import { pipeline } from "stream/promises";
 import readline from "readline";
 
-const BUFFER_CAPACITY = 100_000_00;
-const MAX_MEM_USE = 100_000_00;
-const FILE_SIZE = 200_000_00;
+const BUFFER_CAPACITY = 100_000_000;
+const MAX_MEM_USE = 100_000_000;
+const NUM_OF_LINES = 100_000_000;
 
 (async function () {
-  const fileName = "logistic-chaos.txt";
-
-  await createLargeFile(fileName);
+  const fileName = `${NUM_OF_LINES}-lines.txt`;
+  generateFile(fileName, 100000);
   await externSort(fileName);
 })();
 
 async function externSort(fileName: string) {
   const file = createReadStream(fileName, { highWaterMark: BUFFER_CAPACITY });
   const lines = readline.createInterface({ input: file, crlfDelay: Infinity });
-  const v: number[] = [];
+  const v: string[] = [];
   let size = 0;
   const tmpFileNames: string[] = [];
   for await (let line of lines) {
     size += line.length;
-    v.push(parseFloat(line));
+
+    v.push(line);
     if (size > MAX_MEM_USE) {
       await sortAndWriteToFile(v, tmpFileNames);
       size = 0;
@@ -33,6 +33,18 @@ async function externSort(fileName: string) {
   }
   await merge(tmpFileNames, fileName);
   await cleanUp(tmpFileNames);
+}
+
+async function sortAndWriteToFile(v: string[], tmpFileNames: string[]) {
+  v.sort();
+  let tmpFileName = `tmp_sort_${tmpFileNames.length}.txt`;
+  tmpFileNames.push(tmpFileName);
+  console.log(`creating tmp file: ${tmpFileName}`);
+  await pipeline(
+    v.map((e) => `${e}\n`),
+    createWriteStream(tmpFileName, { highWaterMark: BUFFER_CAPACITY })
+  );
+  v.length = 0;
 }
 
 function cleanUp(tmpFileNames: string[]) {
@@ -53,64 +65,49 @@ async function merge(tmpFileNames: string[], fileName: string) {
       })
       [Symbol.asyncIterator]()
   );
-  const values = await Promise.all<number>(
+  const values = await Promise.all<string>(
     activeReaders.map((r) => {
       return r.next().then((e) => {
-        return parseFloat(e.value);
+        return e.value;
       });
     })
   );
+  console.log("values: ", values);
 
   return pipeline(async function* () {
     while (activeReaders.length > 0) {
       const [minVal, i] = values.reduce(
         (prev, cur, idx) => (cur < prev[0] ? [cur, idx] : prev),
-        [Infinity, -1]
+        ["zzzzzzzzzz", -1]
       );
       yield `${minVal}\n`;
       const res = await activeReaders[i].next();
       if (!res.done) {
-        values[i] = parseFloat(res.value);
+        values[i] = res.value;
       } else {
         values.splice(i, 1);
         activeReaders.splice(i, 1);
       }
     }
-    console.log("Done merging");
   }, file);
 }
 
-async function sortAndWriteToFile(v: number[], tmpFileNames: string[]) {
-  v.sort((a, b) => a - b);
-  let tmpFileName = `tmp_sort_${tmpFileNames.length}.txt`;
-  tmpFileNames.push(tmpFileName);
-  console.log(`creating tmp file: ${tmpFileName}`);
-  await pipeline(
-    v.map((e) => `${e}\n`),
-    createWriteStream(tmpFileName, { highWaterMark: BUFFER_CAPACITY })
-  );
-  v.length = 0;
-}
-
-function createLargeFile(fileName: string) {
-  console.log("Creating large file ...");
-  return pipeline(
-    logistic(0.35),
-    createWriteStream(fileName, { highWaterMark: BUFFER_CAPACITY })
-  );
-}
-
-function* logistic(x: number): Generator<string> {
-  let readBytes = 0;
-  let lastLog = 0;
-  while (readBytes < FILE_SIZE) {
-    x = 3.7 * x * (1.0 - x);
-    const data = `${x}\n`;
-    readBytes += data.length;
-    if (readBytes - lastLog > 1_000_000) {
-      console.log(`${readBytes / 1_000_000.0}mb`);
-      lastLog = readBytes;
-    }
-    yield data;
+function generateRandomString(length: number): string {
+  let result = "";
+  const characters =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  const charactersLength = characters.length;
+  for (let i = 0; i < length; i++) {
+    result += characters.charAt(Math.floor(Math.random() * charactersLength));
   }
+  return result;
+}
+function generateFile(filePath: string, numLines: number): void {
+  console.log("generating file");
+
+  let fileContent = "";
+  for (let i = 0; i < numLines; i++) {
+    fileContent += generateRandomString(12) + "\n";
+  }
+  fs.writeFileSync(filePath, fileContent);
 }
