@@ -3,9 +3,10 @@ import { rm } from "fs/promises";
 import { pipeline } from "stream/promises";
 import readline from "readline";
 
-const BUFFER_CAPACITY = 100_000_0;
-const MAX_MEM_USE = 100_000_0;
-const FILE_SIZE = 200_000_00;
+// Values are in bytes. 1000000 = 1 mb
+const bufferCapacity = 1000000;
+const maxMemoryAvailable = 1000000;
+const fileSize = 20000000;
 
 (async function () {
   const fileName = "largeFile.txt";
@@ -14,8 +15,39 @@ const FILE_SIZE = 200_000_00;
   await externSort(fileName);
 })();
 
+function* generateRandomString(): Generator {
+  let readBytes = 0;
+  let lastLog = 0;
+  while (readBytes < fileSize) {
+    const length = 12;
+    let result = "";
+    const characters =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    const charactersLength = characters.length;
+    for (let i = 0; i < length; i++) {
+      result += characters.charAt(Math.floor(Math.random() * charactersLength));
+    }
+    const x = result;
+    const data = `${x}\n`;
+    readBytes += data.length;
+    if (readBytes - lastLog > 1_000_000) {
+      console.log(`${readBytes / 1_000_000.0}mb`);
+      lastLog = readBytes;
+    }
+    yield data;
+  }
+}
+
+function createLargeFile(fileName: string) {
+  console.log("Creating large file ...");
+  return pipeline(
+    generateRandomString(),
+    createWriteStream(fileName, { highWaterMark: bufferCapacity })
+  );
+}
+
 async function externSort(fileName: string) {
-  const file = createReadStream(fileName, { highWaterMark: BUFFER_CAPACITY });
+  const file = createReadStream(fileName, { highWaterMark: bufferCapacity });
   const lines = readline.createInterface({ input: file, crlfDelay: Infinity });
   const v: string[] = [];
   let size = 0;
@@ -24,7 +56,7 @@ async function externSort(fileName: string) {
     size += line.length;
 
     v.push(line);
-    if (size > MAX_MEM_USE) {
+    if (size > maxMemoryAvailable) {
       await sortAndWriteToFile(v, tmpFileNames);
       size = 0;
     }
@@ -43,7 +75,7 @@ async function sortAndWriteToFile(v: string[], tmpFileNames: string[]) {
   console.log(`creating tmp file: ${tmpFileName}`);
   await pipeline(
     v.map((e) => `${e}\n`),
-    createWriteStream(tmpFileName, { highWaterMark: BUFFER_CAPACITY })
+    createWriteStream(tmpFileName, { highWaterMark: bufferCapacity })
   );
   v.length = 0;
 }
@@ -56,12 +88,12 @@ async function merge(tmpFileNames: string[], fileName: string) {
   console.log("merging result ...");
   const resultFileName = `${fileName.split(".txt")[0]}-sorted.txt`;
   const file = createWriteStream(resultFileName, {
-    highWaterMark: BUFFER_CAPACITY,
+    highWaterMark: bufferCapacity,
   });
   const activeReaders = tmpFileNames.map((name) =>
     readline
       .createInterface({
-        input: createReadStream(name, { highWaterMark: BUFFER_CAPACITY }),
+        input: createReadStream(name, { highWaterMark: bufferCapacity }),
         crlfDelay: Infinity,
       })
       [Symbol.asyncIterator]()
@@ -90,35 +122,4 @@ async function merge(tmpFileNames: string[], fileName: string) {
       }
     }
   }, file);
-}
-
-function createLargeFile(fileName: string) {
-  console.log("Creating large file ...");
-  return pipeline(
-    generateRandomString(),
-    createWriteStream(fileName, { highWaterMark: BUFFER_CAPACITY })
-  );
-}
-
-function* generateRandomString(): Generator {
-  let readBytes = 0;
-  let lastLog = 0;
-  while (readBytes < FILE_SIZE) {
-    const length = 12;
-    let result = "";
-    const characters =
-      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    const charactersLength = characters.length;
-    for (let i = 0; i < length; i++) {
-      result += characters.charAt(Math.floor(Math.random() * charactersLength));
-    }
-    const x = result;
-    const data = `${x}\n`;
-    readBytes += data.length;
-    if (readBytes - lastLog > 1_000_000) {
-      console.log(`${readBytes / 1_000_000.0}mb`);
-      lastLog = readBytes;
-    }
-    yield data;
-  }
 }
